@@ -1146,7 +1146,9 @@ async function init(){
 
 
   // Load pre-existing invoices (already in the DB from PDFs)
+  var prevLen=invoices.length;
   loadPreExistingInvoices();
+  if(invoices.length!==prevLen)persist();
 
   document.getElementById('inv-date').value=today();
   document.getElementById('inv-num').value=numStr(nextNum);
@@ -1155,12 +1157,32 @@ async function init(){
   addItem();
   recalc();
   renderHistory('');
-  
+
   // Check for saved draft
   checkDraft();
-  
+
   // Auto-save draft every 30s
   setInterval(saveDraft,30000);
+
+  // Auto-sync from cloud every 30s and on tab focus
+  setInterval(syncFromCloud,30000);
+  document.addEventListener('visibilitychange',function(){if(!document.hidden)syncFromCloud();});
+}
+
+async function syncFromCloud(){
+  try{
+    var r=await fetch('/api/data');
+    if(!r.ok)return;
+    var d=await r.json();
+    if(d.jsg_v12_inv&&d.jsg_v12_inv.length)invoices=d.jsg_v12_inv;
+    if(d.jsg_v12_num)nextNum=parseInt(d.jsg_v12_num)||1;
+    if(d.jsg_v12_items)inventory=d.jsg_v12_items;
+    if(d.jsg_v12_batches)batches=d.jsg_v12_batches;
+    if(d.jsg_v12_cust&&d.jsg_v12_cust.length)customers=d.jsg_v12_cust;
+    renderHistory(document.getElementById('search-inp')?document.getElementById('search-inp').value||'':'');
+    buildPrefixTabs();
+    renderInventory();
+  }catch(e){}
 }
 
 function persist(){
