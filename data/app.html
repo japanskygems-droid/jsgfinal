@@ -294,9 +294,9 @@ textarea{resize:vertical}
         <div class="total-row" style="align-items:center">
           <span class="total-lbl">Invoice Discount</span>
           <div class="disc-row">
-            <button class="disc-btn active" onclick="setDisc('a')" id="btn-ya">&#165;</button>
-            <button class="disc-btn" onclick="setDisc('p')" id="btn-pct">%</button>
-            <input type="number" id="disc-val" value="0" min="0" step="1" oninput="recalc();saveDraft()" style="width:76px;text-align:right">
+            <button class="disc-btn" onclick="setDisc('a')" id="btn-ya">&#165;</button>
+            <button class="disc-btn active" onclick="setDisc('p')" id="btn-pct">%</button>
+            <input type="number" id="disc-val" value="5" min="0" step="1" oninput="recalc();saveDraft()" style="width:76px;text-align:right">
             <span class="total-val" id="disc-disp" style="color:var(--text-2);font-size:0.81rem">&#8722;&#165;0</span>
           </div>
         </div>
@@ -371,6 +371,14 @@ textarea{resize:vertical}
   <div class="prefix-tabs" id="inv-prefix-tabs"></div>
   <div class="inv-toolbar">
     <input type="text" id="inv-search" placeholder="Search lot no. or name..." oninput="renderInventory()">
+    <select id="inv-sort-sel" onchange="invSort=this.value;renderInventory()" style="width:auto;background:#fff;font-size:0.78rem">
+      <option value="default">Sort: Default</option>
+      <option value="out-first">Out of Stock First</option>
+      <option value="low-first">Low Stock First</option>
+      <option value="price-desc">Price: High → Low</option>
+      <option value="price-asc">Price: Low → High</option>
+      <option value="qty-asc">Qty: Low → High</option>
+    </select>
     <button class="btn-primary" style="font-size:0.78rem;padding:0.48rem 1rem" onclick="openItemModal(null)">+ Add Single Item</button>
     <button class="btn-secondary" style="font-size:0.78rem;padding:0.48rem 1rem" onclick="openNewLotModal()">&#128230; Import New Lot</button>
     <span id="inv-count" style="font-size:0.75rem;color:var(--text-3);margin-left:auto"></span>
@@ -1098,7 +1106,7 @@ var SHIPPING_THRESHOLD=5000,SHIPPING_FEE=250;
 var DEFAULT_NOTE='\u00a55,000\u4ee5\u4e0a\u306f\u9001\u6599\u7121\u6599\u3002Free shipping on orders \u00a55,000+.';
 
 /* ── STATE ── */
-var invoices=[],nextNum=1,discType='a';
+var invoices=[],nextNum=1,discType='p';
 var items={},itemId=0;
 var curInv=null,clearOnClose=false,editingId=null;
 var acSel={},custAcSel=-1;
@@ -1106,6 +1114,7 @@ var inventory=[];
 var batches=[];
 var customers=[];
 var invTabFilter='all';
+var invSort='default';
 var profitFilter='all';
 var historySort='date-desc';
 var reorderData=[];
@@ -1598,7 +1607,7 @@ function buildInvHTML(inv){
   var sRow=inv.shipping>0?'<div class="idoc-tot-row ship"><div class="idoc-tot-lbl">Shipping</div><div class="idoc-tot-val">+'+yen(inv.shipping)+'</div></div>':'';
   var dTh=hasDisc?'<th class="c">Disc%</th>':'';
   return '<div class="idoc-top">'+
-    '<div><div class="idoc-company-name">Japan Sky Gems</div><div class="idoc-company-details">japanskygems@gmail.com<br>Motoasakusa, Taito-Ku, 111-0041<br>japanskygems.com<br>+81 80-4348-1511</div></div>'+
+    '<div><div class="idoc-company-name">Japan Sky Gems</div><div class="idoc-company-details">japanskygems@gmail.com<br>Tokyo, Taito-Ku, Motoasakusa 3-13-8<br>www.japanskygems.com<br>+81 80-4348-1511</div></div>'+
     '<div class="idoc-inv-right"><div class="idoc-micro">Invoice</div><div class="idoc-invnum">'+esc(inv.id)+'</div><div class="idoc-date">'+d+'</div></div></div>'+
     '<div class="idoc-bill"><div class="idoc-bill-lbl">Bill To</div><div class="idoc-bill-name">'+(function(){var n=inv.customer||'';return n?(n.endsWith('様')?esc(n):esc(n)+'様'):''}())+'</div></div>'+
     '<table class="idoc-tbl"><thead><tr><th></th><th class="lot">Lot No.</th><th class="item">Product</th><th class="c">Qty</th>'+dTh+'<th class="r">Unit Price</th><th class="r">Total</th></tr></thead>'+
@@ -1641,11 +1650,11 @@ function clearForm(){
   document.getElementById('inv-payment').value='Cash';
   document.getElementById('cust-name').value='';
   document.getElementById('inv-notes').value=DEFAULT_NOTE;
-  document.getElementById('disc-val').value='0';
+  document.getElementById('disc-val').value='5';
   document.getElementById('items-container').innerHTML='';
-  items={};itemId=0;discType='a';
-  document.getElementById('btn-ya').classList.add('active');
-  document.getElementById('btn-pct').classList.remove('active');
+  items={};itemId=0;discType='p';
+  document.getElementById('btn-ya').classList.remove('active');
+  document.getElementById('btn-pct').classList.add('active');
   addItem();recalc();
 }
 function onInvNumChange(val){var m=val.match(/[0-9]+/);if(m){var p=parseInt(m[0]);if(!isNaN(p)&&p>=nextNum){nextNum=p+1;persist();}}}
@@ -1690,10 +1699,14 @@ function renderHistory(search){
   var mRev=shown.reduce(function(s,i){return s+i.total;},0);
   var mProfit=shown.reduce(function(s,i){return s+invProfit(i);},0);
   var avgMarginPct=mRev>0?Math.round((mRev-shown.reduce(function(s,i){return s+(i.items||[]).reduce(function(c,item){var ii=getItem(item.lotNo);var cu=ii?ii.cost:(item.cost||0);return c+cu*(parseFloat(item.qty)||1);},0);},0))/mRev*100):0;
+  var avgOrder=shown.length?Math.round(mRev/shown.length):0;
+  var custSpend={};shown.forEach(function(inv){var c=inv.customer||'—';custSpend[c]=(custSpend[c]||0)+inv.total;});
+  var topCust=Object.keys(custSpend).sort(function(a,b){return custSpend[b]-custSpend[a]})[0]||'—';
   document.getElementById('h-stats').innerHTML=
-    '<div class="stat-card"><div class="stat-lbl">Invoices</div><div class="stat-val n">'+shown.length+'</div></div>'+
-    '<div class="stat-card"><div class="stat-lbl">Revenue</div><div class="stat-val gold">'+yen(mRev)+'</div></div>'+
-    '<div class="stat-card"><div class="stat-lbl">Est. Profit</div><div class="stat-val g">'+yen(mProfit)+'</div><div class="stat-sub">'+avgMarginPct+'% avg margin</div></div>';
+    '<div class="stat-card"><div class="stat-lbl">Invoices</div><div class="stat-val n">'+shown.length+'</div><div class="stat-sub">in period</div></div>'+
+    '<div class="stat-card"><div class="stat-lbl">Revenue</div><div class="stat-val gold">'+yen(mRev)+'</div><div class="stat-sub">total sales</div></div>'+
+    '<div class="stat-card"><div class="stat-lbl">Est. Profit</div><div class="stat-val g">'+yen(mProfit)+'</div><div class="stat-sub">'+avgMarginPct+'% avg margin</div></div>'+
+    '<div class="stat-card"><div class="stat-lbl">Avg Order</div><div class="stat-val n">'+yen(avgOrder)+'</div><div class="stat-sub">top: '+esc(topCust)+'</div></div>';
   var filtered=shown.filter(function(inv){
     if(!search)return true;
     return (inv.id||'').toLowerCase().indexOf(search)>=0||(inv.customer||'').toLowerCase().indexOf(search)>=0||
@@ -1773,7 +1786,15 @@ function renderInventory(){
     if(q)passes=passes&&((item.name||'').toLowerCase().indexOf(q)>=0||(item.lotNo||'').toLowerCase().indexOf(q)>=0);
     return passes;
   });
+  if(invSort==='out-first')filtered.sort(function(a,b){return (a.qty||0)-(b.qty||0);});
+  else if(invSort==='low-first')filtered.sort(function(a,b){var aq=a.qty||0,bq=b.qty||0;if(aq===0&&bq===0)return 0;if(aq===0)return 1;if(bq===0)return -1;return aq-bq;});
+  else if(invSort==='price-desc')filtered.sort(function(a,b){return (b.price||0)-(a.price||0);});
+  else if(invSort==='price-asc')filtered.sort(function(a,b){return (a.price||0)-(b.price||0);});
+  else if(invSort==='qty-asc')filtered.sort(function(a,b){return (a.qty||0)-(b.qty||0);});
+  var invValue=filtered.reduce(function(s,i){return s+(i.price||0)*(i.qty||0);},0);
   document.getElementById('inv-count').textContent=filtered.length+' items';
+  var stockValEl=document.getElementById('inv-stock-val');
+  if(stockValEl)stockValEl.textContent='Stock value: ¥'+invValue.toLocaleString();
   var outOfStock=inventory.filter(function(i){return i.qty===0;}).length;
   var lowStock=inventory.filter(function(i){return i.qty>0&&i.qty<=1;}).length;
   var navInv=document.getElementById('nav-inventory');
@@ -1818,10 +1839,7 @@ function renderInventory(){
     // Action buttons for the section header
     var actionBtns='';
     if(canDel){
-      actionBtns='<button class="supplier-del-btn" onclick="event.stopPropagation();openReorderModal(\''+esc(grp)+'\')" title="Reorder & fix lot numbers">&#9660;&#9650; Reorder</button>'+
-        '<button class="supplier-del-btn" onclick="event.stopPropagation();deleteBatch(\''+esc(grp)+'\')" style="color:var(--danger);border-color:var(--danger)">&#10005; Delete Lot</button>';
-    } else {
-      actionBtns='<button class="supplier-del-btn" onclick="event.stopPropagation();openReorderModal(\''+esc(grp)+'\')" title="Reorder & fix lot numbers">&#9660;&#9650; Reorder</button>';
+      actionBtns='<button class="supplier-del-btn" onclick="event.stopPropagation();deleteBatch(\''+esc(grp)+'\')" style="color:var(--danger);border-color:var(--danger)">&#10005; Delete Lot</button>';
     }
 
     html+='<div class="supplier-section">'+
@@ -2249,13 +2267,16 @@ function renderProfit(){
   var best=filtered.reduce(function(b,inv){var p=invProfit(inv);return p>(b?invProfit(b):0)?inv:b;},null);
   var invVal=inventory.reduce(function(s,i){return s+(i.price||0)*(i.qty||0);},0);
   var costVal=inventory.reduce(function(s,i){return s+(i.cost||0)*(i.qty||0);},0);
+  var custSpendP={};filtered.forEach(function(inv){var c=inv.customer||'—';custSpendP[c]=(custSpendP[c]||0)+inv.total;});
+  var topCustP=Object.keys(custSpendP).sort(function(a,b){return custSpendP[b]-custSpendP[a]})[0]||'—';
+  var outOfStockCt=inventory.filter(function(i){return (i.qty||0)===0;}).length;
   document.getElementById('profit-cards').innerHTML=
-    '<div class="profit-card hi"><div class="p-lbl">Revenue</div><div class="p-val gold">'+yen(totRev)+'</div><div class="p-sub">'+filtered.length+' invoices</div></div>'+
-    '<div class="profit-card"><div class="p-lbl">Total Cost (&#165;)</div><div class="p-val gray">'+yen(totCost)+'</div><div class="p-sub">From yen cost columns</div></div>'+
-    '<div class="profit-card hi"><div class="p-lbl">Gross Profit</div><div class="p-val '+(totProfit>=0?'green':'red')+'">'+yen(totProfit)+'</div><div class="p-sub">'+avgMargin+'% average margin</div></div>'+
-    '<div class="profit-card"><div class="p-lbl">Avg Profit / Invoice</div><div class="p-val green">'+(filtered.length?yen(totProfit/filtered.length):'\u2014')+'</div></div>'+
-    '<div class="profit-card"><div class="p-lbl">Best Invoice</div><div class="p-val gold" style="font-size:0.95rem">'+(best?esc(best.id)+' +'+yen(invProfit(best)):'\u2014')+'</div><div class="p-sub">'+(best?esc(best.customer||''):'No sales yet')+'</div></div>'+
-    '<div class="profit-card hi"><div class="p-lbl">Inventory Value (Sell)</div><div class="p-val gold">'+yen(invVal)+'</div><div class="p-sub">Cost: '+yen(costVal)+' &middot; Potential: '+yen(invVal-costVal)+'</div></div>';
+    '<div class="profit-card hi"><div class="p-lbl">Revenue</div><div class="p-val gold">'+yen(totRev)+'</div><div class="p-sub">'+filtered.length+' invoices in period</div></div>'+
+    '<div class="profit-card hi"><div class="p-lbl">Gross Profit</div><div class="p-val '+(totProfit>=0?'green':'red')+'">'+yen(totProfit)+'</div><div class="p-sub">'+avgMargin+'% avg margin &middot; cost '+yen(totCost)+'</div></div>'+
+    '<div class="profit-card"><div class="p-lbl">Avg Profit / Invoice</div><div class="p-val green">'+(filtered.length?yen(Math.round(totProfit/filtered.length)):'\u2014')+'</div><div class="p-sub">avg order '+(filtered.length?yen(Math.round(totRev/filtered.length)):'\u2014')+'</div></div>'+
+    '<div class="profit-card"><div class="p-lbl">Best Invoice</div><div class="p-val gold" style="font-size:0.95rem">'+(best?esc(best.id)+' &nbsp;+'+yen(invProfit(best)):'\u2014')+'</div><div class="p-sub">'+(best?esc(best.customer||''):'No sales yet')+'</div></div>'+
+    '<div class="profit-card"><div class="p-lbl">Top Customer</div><div class="p-val n" style="font-size:0.95rem">'+esc(topCustP)+'</div><div class="p-sub">'+(custSpendP[topCustP]?yen(custSpendP[topCustP]):'')+'</div></div>'+
+    '<div class="profit-card hi"><div class="p-lbl">Live Inventory Value</div><div class="p-val gold">'+yen(invVal)+'</div><div class="p-sub">cost '+yen(costVal)+'  &middot;  '+outOfStockCt+' items out of stock</div></div>';
 
   var rows=filtered.map(function(inv){
     var cost=(inv.items||[]).reduce(function(c,item){var ii=getItem(item.lotNo);return c+(ii?ii.cost:0)*(parseFloat(item.qty)||1);},0);
