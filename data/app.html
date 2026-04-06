@@ -1113,23 +1113,25 @@ var reorderBatchPrefix='';
 var draftTimer=null;
 
 /* ── INIT ── */
+var cloudLoaded=false;
 async function loadData(){
   try{
     var r=await fetch('/api/data');
     if(r.ok){
       var d=await r.json();
-      if(d.jsg_v12_inv&&d.jsg_v12_inv.length)invoices=d.jsg_v12_inv;
+      if(d.jsg_v12_inv&&d.jsg_v12_inv.length){invoices=d.jsg_v12_inv;cloudLoaded=true;}
       if(d.jsg_v12_num)nextNum=parseInt(d.jsg_v12_num)||1;
-      if(d.jsg_v12_items&&d.jsg_v12_items.length)inventory=d.jsg_v12_items;
-      if(d.jsg_v12_batches&&d.jsg_v12_batches.length)batches=d.jsg_v12_batches;
+      if(d.jsg_v12_items)inventory=d.jsg_v12_items;
+      if(d.jsg_v12_batches)batches=d.jsg_v12_batches;
       if(d.jsg_v12_cust&&d.jsg_v12_cust.length)customers=d.jsg_v12_cust;
+      if(d.jsg_v12_items||d.jsg_v12_batches)cloudLoaded=true;
     }
   }catch(e){}
 }
 async function init(){
   await loadData();
 
-  if(!inventory.length){
+  if(!cloudLoaded){
     inventory=BUILTIN_INVENTORY.map(function(i){return Object.assign({},i,{inStock:i.qty>0,qty:i.qty||0,cost:i.cost||0});});
     batches=[
       {prefix:'N',name:'Nazar',isBuiltin:false},
@@ -1139,10 +1141,6 @@ async function init(){
       {prefix:'V',name:'Vishesh',isBuiltin:false}
     ];
   } else {
-    BUILTIN_INVENTORY.forEach(function(bi){
-      if(!inventory.find(function(x){return x.lotNo===bi.lotNo;}))
-        inventory.push(Object.assign({},bi,{inStock:bi.qty>0,qty:bi.qty||0,cost:bi.cost||0}));
-    });
     inventory.forEach(function(i){if(i.inStock===undefined)i.inStock=i.qty>0;if(!i.qty)i.qty=0;if(!i.cost)i.cost=0;});
   }
 
