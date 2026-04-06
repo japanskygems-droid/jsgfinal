@@ -1113,20 +1113,21 @@ var reorderBatchPrefix='';
 var draftTimer=null;
 
 /* ── INIT ── */
-function init(){
+async function loadData(){
   try{
-    var s=localStorage.getItem('jsg_v12_inv');if(s)invoices=JSON.parse(s);
-    // Migrate from old key
-    if(!invoices.length){var old11=localStorage.getItem('jsg_v11_inv');if(old11){invoices=JSON.parse(old11);}else{var old10=localStorage.getItem('jsg_v10_inv');if(old10){invoices=JSON.parse(old10);}}}
-    var n=localStorage.getItem('jsg_v12_num');if(n)nextNum=parseInt(n)||1;
-    if(!nextNum){var oldn11=localStorage.getItem('jsg_v11_num');if(oldn11)nextNum=parseInt(oldn11)||1;else{var oldn10=localStorage.getItem('jsg_v10_num');if(oldn10)nextNum=parseInt(oldn10)||1;}}
-    var it=localStorage.getItem('jsg_v12_items');if(it)inventory=JSON.parse(it);
-    if(!inventory.length){var oldi11=localStorage.getItem('jsg_v11_items');if(oldi11)inventory=JSON.parse(oldi11);else{var oldi10=localStorage.getItem('jsg_v10_items');if(oldi10)inventory=JSON.parse(oldi10);}}
-    var b=localStorage.getItem('jsg_v12_batches');if(b)batches=JSON.parse(b);
-    if(!batches.length){var oldb11=localStorage.getItem('jsg_v11_batches');if(oldb11)batches=JSON.parse(oldb11);else{var oldb10=localStorage.getItem('jsg_v10_batches');if(oldb10)batches=JSON.parse(oldb10);}}
-    var cu=localStorage.getItem('jsg_v12_cust');if(cu)customers=JSON.parse(cu);
-    if(!customers.length){var oldc=localStorage.getItem('jsg_v10_cust');if(oldc)customers=JSON.parse(oldc);}
+    var r=await fetch('/api/data');
+    if(r.ok){
+      var d=await r.json();
+      if(d.jsg_v12_inv&&d.jsg_v12_inv.length)invoices=d.jsg_v12_inv;
+      if(d.jsg_v12_num)nextNum=parseInt(d.jsg_v12_num)||1;
+      if(d.jsg_v12_items&&d.jsg_v12_items.length)inventory=d.jsg_v12_items;
+      if(d.jsg_v12_batches&&d.jsg_v12_batches.length)batches=d.jsg_v12_batches;
+      if(d.jsg_v12_cust&&d.jsg_v12_cust.length)customers=d.jsg_v12_cust;
+    }
   }catch(e){}
+}
+async function init(){
+  await loadData();
 
   if(!inventory.length){
     inventory=BUILTIN_INVENTORY.map(function(i){return Object.assign({},i,{inStock:i.qty>0,qty:i.qty||0,cost:i.cost||0});});
@@ -1165,13 +1166,17 @@ function init(){
 }
 
 function persist(){
-  try{
-    localStorage.setItem('jsg_v12_inv',JSON.stringify(invoices));
-    localStorage.setItem('jsg_v12_num',String(nextNum));
-    localStorage.setItem('jsg_v12_items',JSON.stringify(inventory));
-    localStorage.setItem('jsg_v12_batches',JSON.stringify(batches));
-    localStorage.setItem('jsg_v12_cust',JSON.stringify(customers));
-  }catch(e){toast('Storage full! Please export a backup.','terr');}
+  fetch('/api/data',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({
+      jsg_v12_inv:invoices,
+      jsg_v12_num:nextNum,
+      jsg_v12_items:inventory,
+      jsg_v12_batches:batches,
+      jsg_v12_cust:customers
+    })
+  }).catch(function(){toast('Save failed — check connection.','terr');});
 }
 
 /* ── DRAFT SYSTEM ── */
