@@ -161,7 +161,7 @@ textarea{resize:vertical}
 .lot-preview-wrap{max-height:140px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--r);background:var(--bg);padding:0.4rem 0.6rem;margin-top:0.45rem;font-size:0.73rem;color:var(--text-2);font-family:monospace}
 /* INVOICE DOC */
 .idoc{font-family:'Nunito','Helvetica Neue',Arial,sans-serif;color:#1a1510;padding:38px 46px;background:#fff;line-height:1.5}
-.idoc-top{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:18px;margin-bottom:26px;padding-bottom:18px;border-bottom:2px solid #e8dfc8}
+.idoc-top{display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:18px;margin-bottom:26px;padding-bottom:18px;border-bottom:2px solid #e8dfc8}
 .idoc-company-name{font-family:'Cormorant Garamond',Georgia,serif;font-size:1.15rem;font-weight:400;letter-spacing:0.14em;text-transform:uppercase;color:#1a1510}
 .idoc-company-details{font-size:0.65rem;color:#8a806a;margin-top:4px;line-height:1.75}
 .idoc-logo-center{display:flex;justify-content:center;align-items:center}
@@ -259,7 +259,7 @@ textarea{resize:vertical}
       <input type="text" id="inv-num" placeholder="INV-0001" onchange="onInvNumChange(this.value)">
       <input type="date" id="inv-date" title="Invoice date">
       <select id="inv-payment">
-        <option value="Cash">Cash &middot; &#29287;&#37329;</option>
+        <option value="Cash">Cash &middot; 現金</option>
         <option value="PayPay">PayPay</option>
         <option value="LINE Pay">LINE Pay</option>
         <option value="Credit Card">Credit Card</option>
@@ -1131,11 +1131,11 @@ function init(){
   if(!inventory.length){
     inventory=BUILTIN_INVENTORY.map(function(i){return Object.assign({},i,{inStock:i.qty>0,qty:i.qty||0,cost:i.cost||0});});
     batches=[
-      {prefix:'N',name:'Nazar',isBuiltin:true},
-      {prefix:'H',name:'Harsh',isBuiltin:true},
-      {prefix:'J',name:'JSG',isBuiltin:true},
-      {prefix:'R',name:'Rahul',isBuiltin:true},
-      {prefix:'V',name:'Vishesh',isBuiltin:true}
+      {prefix:'N',name:'Nazar',isBuiltin:false},
+      {prefix:'H',name:'Harsh',isBuiltin:false},
+      {prefix:'J',name:'JSG',isBuiltin:false},
+      {prefix:'R',name:'Rahul',isBuiltin:false},
+      {prefix:'V',name:'Vishesh',isBuiltin:false}
     ];
   } else {
     BUILTIN_INVENTORY.forEach(function(bi){
@@ -1145,17 +1145,6 @@ function init(){
     inventory.forEach(function(i){if(i.inStock===undefined)i.inStock=i.qty>0;if(!i.qty)i.qty=0;if(!i.cost)i.cost=0;});
   }
 
-  // Ensure built-in batches always exist
-  var builtins=[
-    {prefix:'N',name:'Nazar',isBuiltin:true},
-    {prefix:'H',name:'Harsh',isBuiltin:true},
-    {prefix:'J',name:'JSG',isBuiltin:true},
-    {prefix:'R',name:'Rahul',isBuiltin:true},
-    {prefix:'V',name:'Vishesh',isBuiltin:true}
-  ];
-  builtins.forEach(function(b){
-    if(!batches.find(function(x){return x.prefix===b.prefix;})) batches.push(b);
-  });
 
   // Load pre-existing invoices (already in the DB from PDFs)
   loadPreExistingInvoices();
@@ -1584,10 +1573,9 @@ function buildInvHTML(inv){
   var sRow=inv.shipping>0?'<div class="idoc-tot-row ship"><div class="idoc-tot-lbl">Shipping</div><div class="idoc-tot-val">+'+yen(inv.shipping)+'</div></div>':'';
   var dTh=hasDisc?'<th class="c">Disc%</th>':'';
   return '<div class="idoc-top">'+
-    '<div><div class="idoc-company-name">Japan Sky Gems</div><div class="idoc-company-details">Gemstone Trading &middot; Tokyo, Japan<br>japanskygemss.com &middot; +81 80-4348-1511</div></div>'+
-    '<div class="idoc-logo-center"><img src="'+LOGO+'" class="idoc-logo" alt="JSG"></div>'+
+    '<div><div class="idoc-company-name">Japan Sky Gems</div><div class="idoc-company-details">japanskygems@gmail.com<br>Motoasakusa, Taito-Ku, 111-0041<br>japanskygems.com<br>+81 80-4348-1511</div></div>'+
     '<div class="idoc-inv-right"><div class="idoc-micro">Invoice</div><div class="idoc-invnum">'+esc(inv.id)+'</div><div class="idoc-date">'+d+'</div></div></div>'+
-    '<div class="idoc-bill"><div class="idoc-bill-lbl">Bill To</div><div class="idoc-bill-name">'+esc(inv.customer||'')+'</div></div>'+
+    '<div class="idoc-bill"><div class="idoc-bill-lbl">Bill To</div><div class="idoc-bill-name">'+(function(){var n=inv.customer||'';return n?(n.endsWith('様')?esc(n):esc(n)+'様'):''}())+'</div></div>'+
     '<table class="idoc-tbl"><thead><tr><th></th><th class="lot">Lot No.</th><th class="item">Product</th><th class="c">Qty</th>'+dTh+'<th class="r">Unit Price</th><th class="r">Total</th></tr></thead>'+
     '<tbody>'+rows+'</tbody></table>'+
     '<div class="idoc-bottom"><div class="idoc-paid"><strong>Payment:</strong> '+esc(inv.payment||'')+'</div>'+
@@ -1613,7 +1601,7 @@ function doPrint(){
   var content=document.getElementById('inv-preview').innerHTML;
   var ifrm=document.getElementById('pframe'),d=ifrm.contentDocument||ifrm.contentWindow.document;
   d.open();
-  d.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400&family=Nunito:wght@300;400;600;700&display=swap" rel="stylesheet"><style>@page{margin:0.4in}*{box-sizing:border-box;margin:0;padding:0}body{font-family:"Nunito",Arial,sans-serif;color:#000;background:#fff}.idoc{padding:26px 36px;line-height:1.5}.idoc-top{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:14px;margin-bottom:20px;padding-bottom:14px;border-bottom:1.5px solid #aaa}.idoc-company-name{font-family:"Cormorant Garamond",serif;font-size:1.05rem;letter-spacing:0.12em;text-transform:uppercase}.idoc-company-details{font-size:0.64rem;color:#333;margin-top:3px;line-height:1.7}.idoc-logo-center{display:flex;justify-content:center}.idoc-logo{width:62px;height:62px;object-fit:contain;filter:grayscale(1) contrast(1.4) brightness(0.7)}.idoc-inv-right{text-align:right}.idoc-micro{font-size:0.48rem;letter-spacing:0.14em;text-transform:uppercase;color:#555;font-weight:700;margin-bottom:3px}.idoc-invnum{font-size:1.2rem;font-weight:300;letter-spacing:0.07em}.idoc-date{font-size:0.69rem;color:#333;margin-top:3px}.idoc-bill{margin-bottom:16px}.idoc-bill-lbl{font-size:0.52rem;letter-spacing:0.14em;text-transform:uppercase;color:#555;font-weight:700;margin-bottom:3px}.idoc-bill-name{font-size:0.98rem;font-weight:700}.idoc-tbl{width:100%;border-collapse:collapse;margin-bottom:13px}.idoc-tbl th{font-size:0.52rem;letter-spacing:0.09em;text-transform:uppercase;color:#555;font-weight:700;padding:5px 0;border-bottom:1.5px solid #aaa}.idoc-tbl th:first-child,.idoc-tbl td:first-child{text-align:center;width:22px;padding-right:5px;color:#888}.idoc-tbl th.lot,.idoc-tbl td.lot{text-align:left;width:68px;padding-right:8px;font-size:0.71rem;color:#444}.idoc-tbl th.item,.idoc-tbl td.item{text-align:left;font-weight:600;font-size:0.78rem}.idoc-tbl th.c,.idoc-tbl td.c{text-align:center}.idoc-tbl th.r,.idoc-tbl td.r{text-align:right;font-weight:600}.idoc-tbl td{padding:7px 0;border-bottom:1px solid #ddd;font-size:0.8rem;vertical-align:middle}.idoc-bottom{display:flex;align-items:flex-end;justify-content:space-between;margin-top:10px;gap:1.2rem}.idoc-paid{font-size:0.72rem;color:#333;padding:5px 10px;background:#f2f2f2;border-radius:3px;border:1px solid #bbb}.idoc-paid strong{font-weight:700}.idoc-totals{display:flex;flex-direction:column;align-items:flex-end;gap:3px}.idoc-tot-row{display:flex;gap:2rem}.idoc-tot-lbl{font-size:0.74rem;color:#333}.idoc-tot-val{font-size:0.74rem;min-width:90px;text-align:right}.idoc-tot-row.grand{border-top:1.5px solid #000;padding-top:5px;margin-top:2px}.idoc-tot-row.grand .idoc-tot-lbl{font-size:0.8rem;font-weight:700}.idoc-tot-row.grand .idoc-tot-val{font-size:1rem;font-weight:700}.idoc-tot-row.ship .idoc-tot-lbl,.idoc-tot-row.ship .idoc-tot-val{color:#2a5c2a}.idoc-footer{margin-top:22px;padding-top:8px;border-top:1px solid #bbb;display:flex;justify-content:space-between}.idoc-footer-brand{font-family:"Cormorant Garamond",serif;font-size:0.76rem;letter-spacing:0.09em;color:#777}.idoc-footer-thanks{font-size:0.62rem;color:#777}.idoc-footer-note{font-size:0.62rem;color:#555;margin-top:2px;font-style:italic}</style></head><body><div class="idoc">'+content+'</div></body></html>');
+  d.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400&family=Nunito:wght@300;400;600;700&display=swap" rel="stylesheet"><style>@page{margin:0.4in}*{box-sizing:border-box;margin:0;padding:0}body{font-family:"Nunito",Arial,sans-serif;color:#000;background:#fff}.idoc{padding:26px 36px;line-height:1.5}.idoc-top{display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:14px;margin-bottom:20px;padding-bottom:14px;border-bottom:1.5px solid #aaa}.idoc-company-name{font-family:"Cormorant Garamond",serif;font-size:1.05rem;letter-spacing:0.12em;text-transform:uppercase}.idoc-company-details{font-size:0.64rem;color:#333;margin-top:3px;line-height:1.7}.idoc-logo-center{display:flex;justify-content:center}.idoc-logo{width:62px;height:62px;object-fit:contain;filter:grayscale(1) contrast(1.4) brightness(0.7)}.idoc-inv-right{text-align:right}.idoc-micro{font-size:0.48rem;letter-spacing:0.14em;text-transform:uppercase;color:#555;font-weight:700;margin-bottom:3px}.idoc-invnum{font-size:1.2rem;font-weight:300;letter-spacing:0.07em}.idoc-date{font-size:0.69rem;color:#333;margin-top:3px}.idoc-bill{margin-bottom:16px}.idoc-bill-lbl{font-size:0.52rem;letter-spacing:0.14em;text-transform:uppercase;color:#555;font-weight:700;margin-bottom:3px}.idoc-bill-name{font-size:0.98rem;font-weight:700}.idoc-tbl{width:100%;border-collapse:collapse;margin-bottom:13px}.idoc-tbl th{font-size:0.52rem;letter-spacing:0.09em;text-transform:uppercase;color:#555;font-weight:700;padding:5px 0;border-bottom:1.5px solid #aaa}.idoc-tbl th:first-child,.idoc-tbl td:first-child{text-align:center;width:22px;padding-right:5px;color:#888}.idoc-tbl th.lot,.idoc-tbl td.lot{text-align:left;width:68px;padding-right:8px;font-size:0.71rem;color:#444}.idoc-tbl th.item,.idoc-tbl td.item{text-align:left;font-weight:600;font-size:0.78rem}.idoc-tbl th.c,.idoc-tbl td.c{text-align:center}.idoc-tbl th.r,.idoc-tbl td.r{text-align:right;font-weight:600}.idoc-tbl td{padding:7px 0;border-bottom:1px solid #ddd;font-size:0.8rem;vertical-align:middle}.idoc-bottom{display:flex;align-items:flex-end;justify-content:space-between;margin-top:10px;gap:1.2rem}.idoc-paid{font-size:0.72rem;color:#333;padding:5px 10px;background:#f2f2f2;border-radius:3px;border:1px solid #bbb}.idoc-paid strong{font-weight:700}.idoc-totals{display:flex;flex-direction:column;align-items:flex-end;gap:3px}.idoc-tot-row{display:flex;gap:2rem}.idoc-tot-lbl{font-size:0.74rem;color:#333}.idoc-tot-val{font-size:0.74rem;min-width:90px;text-align:right}.idoc-tot-row.grand{border-top:1.5px solid #000;padding-top:5px;margin-top:2px}.idoc-tot-row.grand .idoc-tot-lbl{font-size:0.8rem;font-weight:700}.idoc-tot-row.grand .idoc-tot-val{font-size:1rem;font-weight:700}.idoc-tot-row.ship .idoc-tot-lbl,.idoc-tot-row.ship .idoc-tot-val{color:#2a5c2a}.idoc-footer{margin-top:22px;padding-top:8px;border-top:1px solid #bbb;display:flex;justify-content:space-between}.idoc-footer-brand{font-family:"Cormorant Garamond",serif;font-size:0.76rem;letter-spacing:0.09em;color:#777}.idoc-footer-thanks{font-size:0.62rem;color:#777}.idoc-footer-note{font-size:0.62rem;color:#555;margin-top:2px;font-style:italic}</style></head><body><div class="idoc">'+content+'</div></body></html>');
   d.close();setTimeout(function(){ifrm.contentWindow.print();},900);
 }
 
@@ -1797,8 +1785,8 @@ function renderInventory(){
     var totalQty=grpItems.reduce(function(s,i){return s+(i.qty||0);},0);
     var outCt=grpItems.filter(function(i){return i.qty===0;}).length;
     var lowCt=grpItems.filter(function(i){return i.qty>0&&i.qty<=2;}).length;
-    var canDel=!batch||!batch.isBuiltin;
-    var isBuiltin=batch&&batch.isBuiltin;
+    var canDel=true;
+    var isBuiltin=false;
     var sid='section-'+grp;
     var isOpen=localStorage.getItem('sec_'+grp)!=='0';
 
@@ -2104,7 +2092,6 @@ function doImportFile(){
 function deleteBatch(prefix){
   var b=batches.find(function(x){return x.prefix===prefix;});
   if(!b){toast('Batch not found.','terr');return;}
-  if(b.isBuiltin){toast('Built-in batches cannot be removed.','terr');return;}
   var count=inventory.filter(function(item){
     if(!item.lotNo)return false;
     var u=item.lotNo.toUpperCase(),p=prefix.toUpperCase();
