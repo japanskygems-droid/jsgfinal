@@ -358,7 +358,7 @@ textarea{resize:vertical}
         </div>
         <input type="file" id="import-inv-file" accept=".csv" style="display:none" onchange="handleInvoiceImport(event)">
         <input type="file" id="import-backup-file" accept=".json" style="display:none" onchange="handleFullBackup(event)">
-        <div class="backup-warn">&#9888; Data lives in <strong>this browser only</strong>. Export regularly as backup. For full backup use the JSON option which includes all invoices, inventory &amp; settings.</div>
+        <div class="backup-warn">&#9989; Data is saved to the cloud (GitHub Gist) and automatically backed up in this browser. Export a JSON regularly as an extra safeguard — it includes all invoices, inventory &amp; settings.</div>
         <div style="font-size:0.65rem;color:var(--text-3);margin-top:0.5rem;text-align:right">JSG System v3 &mdash; Japan Sky Gems</div>
       </div>
     </div>
@@ -1134,8 +1134,22 @@ async function loadData(){
       if(d.jsg_v12_batches)batches=d.jsg_v12_batches;
       if(d.jsg_v12_cust&&d.jsg_v12_cust.length)customers=d.jsg_v12_cust;
       if(d.jsg_v12_items||d.jsg_v12_batches)cloudLoaded=true;
+      try{localStorage.setItem('jsg_cloud_backup',JSON.stringify({d:d,t:Date.now()}));}catch(e){}
     }
-  }catch(e){}
+  }catch(e){
+    try{
+      var bk=JSON.parse(localStorage.getItem('jsg_cloud_backup')||'null');
+      if(bk&&bk.d){
+        var d=bk.d;
+        if(d.jsg_v12_inv&&d.jsg_v12_inv.length){invoices=d.jsg_v12_inv;cloudLoaded=true;}
+        if(d.jsg_v12_num)nextNum=parseInt(d.jsg_v12_num)||1;
+        if(d.jsg_v12_items)inventory=d.jsg_v12_items;
+        if(d.jsg_v12_batches)batches=d.jsg_v12_batches;
+        if(d.jsg_v12_cust&&d.jsg_v12_cust.length)customers=d.jsg_v12_cust;
+        toast('Cloud unreachable — showing local backup from '+new Date(bk.t).toLocaleString(),'terr');
+      }
+    }catch(e2){}
+  }
 }
 async function init(){
   await loadData();
@@ -1188,6 +1202,7 @@ async function syncFromCloud(){
     if(d.jsg_v12_items)inventory=d.jsg_v12_items;
     if(d.jsg_v12_batches)batches=d.jsg_v12_batches;
     if(d.jsg_v12_cust&&d.jsg_v12_cust.length)customers=d.jsg_v12_cust;
+    try{localStorage.setItem('jsg_cloud_backup',JSON.stringify({d:d,t:Date.now()}));}catch(e){}
     renderHistory(document.getElementById('search-inp')?document.getElementById('search-inp').value||'':'');
     buildPrefixTabs();
     renderInventory();
@@ -1195,17 +1210,17 @@ async function syncFromCloud(){
 }
 
 function persist(){
-  fetch('/api/data',{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({
-      jsg_v12_inv:invoices,
-      jsg_v12_num:nextNum,
-      jsg_v12_items:inventory,
-      jsg_v12_batches:batches,
-      jsg_v12_cust:customers
-    })
-  }).catch(function(){toast('Save failed — check connection.','terr');});
+  var payload={jsg_v12_inv:invoices,jsg_v12_num:nextNum,jsg_v12_items:inventory,jsg_v12_batches:batches,jsg_v12_cust:customers};
+  try{localStorage.setItem('jsg_cloud_backup',JSON.stringify({d:payload,t:Date.now()}));}catch(e){}
+  function doSave(attempt){
+    fetch('/api/data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
+    .then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);})
+    .catch(function(){
+      if(attempt<3){setTimeout(function(){doSave(attempt+1);},attempt*2000);}
+      else{toast('Save failed after 3 retries — data is in local backup only.','terr');}
+    });
+  }
+  doSave(1);
 }
 
 /* ── DRAFT SYSTEM ── */
