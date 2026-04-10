@@ -2063,7 +2063,7 @@ function doImportPaste(){
   lines.forEach(function(line){
     var parts=line.split(/\t|,/);
     var name=(parts[0]||'').trim();
-    var price=Math.round((parseFloat((parts[1]||'').replace(/[^0-9.]/g,''))||0)/100)*100;
+    var price=parseFloat((parts[1]||'').replace(/[^0-9.]/g,''))||0;
     var cost=parseFloat((parts[2]||'').replace(/[^0-9.]/g,''))||0;
     var qty=parseInt((parts[3]||'').replace(/[^0-9]/g,''))||0;
     if(!name||name.toLowerCase()==='nan')return;
@@ -2117,8 +2117,8 @@ function doImportFile(){
         var name=(row[nameIdx]||'').trim();
         if(!name||name.toLowerCase()==='nan'||/^[0-9.]+$/.test(name))continue;
         var rawPrice=parseFloat((row[priceIdx]||'').replace(/[^0-9.]/g,''))||0;
-        var price=Math.round(rawPrice/100)*100;
-        var cost=costIdx>=0?Math.round(parseFloat((row[costIdx]||'').replace(/[^0-9.]/g,''))||0):0;
+        var price=rawPrice;
+        var cost=costIdx>=0?parseFloat((row[costIdx]||'').replace(/[^0-9.]/g,''))||0:0;
         var qty=qtyIdx>=0?parseInt((row[qtyIdx]||'').replace(/[^0-9]/g,''))||0:0;
         var lotNo=prefix+counter;
         while(getItem(lotNo)){counter++;lotNo=prefix+counter;}
