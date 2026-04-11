@@ -1718,10 +1718,11 @@ function invProfit(inv){
 function timeFilter(list,f){
   var now=new Date();
   return list.filter(function(inv){
-    var d=new Date(inv.created||inv.date);
+    // Use inv.date (user-set invoice date) not inv.created (system entry timestamp)
+    var d=new Date((inv.date||inv.created||'')+'T00:00:00');
     if(f==='month')return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear();
     if(f==='week'){var ws=new Date(now);ws.setDate(now.getDate()-now.getDay());ws.setHours(0,0,0,0);return d>=ws;}
-    if(f==='today'){var ts=new Date();ts.setHours(0,0,0,0);return d>=ts;}
+    if(f==='today'){var ts=today();return (inv.date||'').slice(0,10)===ts;}
     return true;
   });
 }
@@ -2299,9 +2300,9 @@ function renderProfit(){
   var from=document.getElementById('pf-from').value,to=document.getElementById('pf-to').value;
   var filtered=invoices.filter(function(inv){
     if(from||to){
-      var d=new Date(inv.created||inv.date);
-      if(from&&d<new Date(from+'T00:00:00'))return false;
-      if(to&&d>new Date(to+'T23:59:59'))return false;
+      var ds=(inv.date||inv.created||'').slice(0,10);
+      if(from&&ds<from)return false;
+      if(to&&ds>to)return false;
       return true;
     }
     if(profitFilter==='all')return true;
