@@ -381,6 +381,7 @@ textarea{resize:vertical}
     </select>
     <button class="btn-primary" style="font-size:0.78rem;padding:0.48rem 1rem" onclick="openItemModal(null)">+ Add Single Item</button>
     <button class="btn-secondary" style="font-size:0.78rem;padding:0.48rem 1rem" onclick="openNewLotModal()">&#128230; Import New Lot</button>
+    <button class="btn-secondary" id="sync-shop-btn" style="font-size:0.78rem;padding:0.48rem 1rem;border-color:rgba(155,125,65,0.5);color:var(--gold)" onclick="syncToShop(true)">&#128257; Sync to Shop</button>
     <span id="inv-count" style="font-size:0.75rem;color:var(--text-3);margin-left:auto"></span>
     <span id="inv-stock-val" style="font-size:0.72rem;color:var(--text-3)"></span>
   </div>
@@ -1223,6 +1224,38 @@ function persist(){
   doSave(1);
 }
 
+/* ── WOOCOMMERCE SYNC ── */
+var wooSyncTimer=null;
+function syncToShop(manual,items){
+  // Debounce auto-syncs to avoid hammering the API
+  if(!manual){
+    if(wooSyncTimer)clearTimeout(wooSyncTimer);
+    wooSyncTimer=setTimeout(function(){syncToShop(false,items);},5000);
+    return;
+  }
+  var btn=document.getElementById('sync-shop-btn');
+  if(btn){btn.disabled=true;btn.textContent='Syncing...';}
+  var payload=items||inventory;
+  fetch('/api/woo-sync',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({items:payload})
+  })
+  .then(function(r){return r.json();})
+  .then(function(d){
+    if(btn){btn.disabled=false;btn.textContent='↻ Sync to Shop';}
+    if(d.error){toast('Shop sync failed: '+d.error,'terr');}
+    else{
+      var msg='Shop synced — '+d.created+' created, '+d.updated+' updated.';
+      toast(msg,'tok');
+    }
+  })
+  .catch(function(){
+    if(btn){btn.disabled=false;btn.textContent='↻ Sync to Shop';}
+    toast('Shop sync failed — try manually later.','terr');
+  });
+}
+
 /* ── DRAFT SYSTEM ── */
 function saveDraft(){
   // Only save if there's meaningful content
@@ -2001,6 +2034,7 @@ function saveItem(){
     inventory.unshift({lotNo:lot,name:name,price:price,cost:cost,qty:qty,source:source||'custom',batchName:source||'Custom',inStock:qty>0});
   }
   persist();closeItemModal();renderInventory();buildPrefixTabs();toast((origLot?'Item updated.':'Item added to inventory.'),'tok');
+  syncToShop(false);
 }
 function delItem(lotNo){
   if(!confirm('Delete "'+lotNo+'" from inventory?\n\nLot numbers in this batch will be renumbered to close the gap.'))return;
@@ -2090,6 +2124,7 @@ function doImportPaste(){
   batches.push({prefix:prefix,name:batchName,isBuiltin:false});
   persist();closeLotModal();buildPrefixTabs();invTabFilter=prefix;renderInventory();
   toast(added+' items imported into "'+batchName+'"!','tok');
+  syncToShop(false);
 }
 function doImportFile(){
   var batchName=document.getElementById('ip-batch-name').value.trim();
@@ -2143,6 +2178,7 @@ function doImportFile(){
       batches.push({prefix:prefix,name:batchName,isBuiltin:false});
       persist();closeLotModal();buildPrefixTabs();invTabFilter=prefix;renderInventory();
       toast(added+' items imported! Cost col: '+(costIdx>=0?'"'+headers[costIdx]+'"':'not found'),'tok');
+      syncToShop(false);
     }catch(err){toast('Import failed: '+err.message,'terr');}
   };
   reader.readAsText(fileInput.files[0],'utf-8');
