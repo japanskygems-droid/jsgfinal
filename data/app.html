@@ -90,6 +90,13 @@ textarea{resize:vertical}
 .inv-acts{display:flex;gap:0.28rem}
 .btn-sm{background:none;border:1px solid var(--border);border-radius:var(--r);color:var(--text-2);font-size:0.69rem;font-family:'Nunito',sans-serif;padding:0.26rem 0.55rem;cursor:pointer;transition:all 0.18s;white-space:nowrap}
 .btn-sm:hover{border-color:var(--border-md);color:var(--text)}.btn-sm.d:hover{border-color:var(--danger);color:var(--danger)}.btn-sm.e:hover{border-color:var(--gold);color:var(--gold)}
+.inv-item.unpaid{border-color:#ef9a9a;background:#fff5f5}
+.inv-item.unpaid:hover{border-color:var(--danger)}
+.inv-item.unpaid .inv-num{color:var(--danger)}
+.btn-sm.mark-paid{border-color:#a5d6a7;color:var(--green);font-weight:700}
+.btn-sm.mark-paid:hover{background:var(--green-bg);border-color:var(--green);color:var(--green)}
+.btn-sm.mark-unpaid{border-color:#ef9a9a;color:var(--danger);font-weight:700}
+.btn-sm.mark-unpaid:hover{background:#ffebee;border-color:var(--danger);color:var(--danger)}
 .search-bar{margin-bottom:0.85rem;display:flex;gap:0.6rem;align-items:center;flex-wrap:wrap}
 .search-bar input{max-width:300px;background:#fff}
 .empty{text-align:center;padding:3rem;color:var(--text-3);font-size:0.84rem}
@@ -332,6 +339,11 @@ textarea{resize:vertical}
       <option value="LINE Pay">LINE Pay</option>
       <option value="Credit Card">Credit Card</option>
       <option value="Bank Transfer">Bank Transfer</option>
+    </select>
+    <select id="h-paid-filter" onchange="renderHistory()" style="width:auto;background:#fff">
+      <option value="all">All statuses</option>
+      <option value="paid">Paid ✓</option>
+      <option value="unpaid">Unpaid ✗</option>
     </select>
     <select id="h-sort" onchange="historySort=this.value;renderHistory()" style="width:auto;background:#fff">
       <option value="date-desc">Date &#x2193; (newest)</option>
@@ -1566,11 +1578,11 @@ function saveAndPreview(){
   var inv={id:invNum,date:document.getElementById('inv-date').value,payment:document.getElementById('inv-payment').value,customer:name,
     items:itms.map(function(i){return Object.assign({},i);}),subtotal:sub,discType:discType,
     discValue:parseFloat(document.getElementById('disc-val').value)||0,discount:disc,shipping:ship,total:after+ship,
-    notes:document.getElementById('inv-notes').value.trim(),created:new Date().toISOString()};
+    notes:document.getElementById('inv-notes').value.trim(),created:new Date().toISOString(),paid:true};
   var wasEditing=!!editingId;
   if(editingId){
     var old=invoices.find(function(x){return x.id===editingId;});
-    if(old){adjustInv(old.items,+1);inv.created=old.created;}
+    if(old){adjustInv(old.items,+1);inv.created=old.created;inv.paid=(old.paid===false)?false:true;}
     var eidx=invoices.findIndex(function(x){return x.id===editingId;});
     if(eidx>=0)invoices[eidx]=inv;else invoices.unshift(inv);
     editingId=null;
@@ -1730,8 +1742,11 @@ function renderHistory(search){
   search=(typeof search==='string'?search:(document.getElementById('search-inp')||{}).value||'').toLowerCase().trim();
   var f=(document.getElementById('h-filter')||{}).value||'all';
   var pf=(document.getElementById('h-payment-filter')||{}).value||'all';
+  var padf=(document.getElementById('h-paid-filter')||{}).value||'all';
   var shown=f==='all'?invoices:timeFilter(invoices,f);
   if(pf!=='all') shown=shown.filter(function(i){return (i.payment||'').indexOf(pf)>=0;});
+  if(padf==='paid') shown=shown.filter(function(i){return i.paid!==false;});
+  else if(padf==='unpaid') shown=shown.filter(function(i){return i.paid===false;});
   // Sort
   var sortKey=(document.getElementById('h-sort')||{}).value||historySort;
   shown=shown.slice().sort(function(a,b){
@@ -1751,11 +1766,13 @@ function renderHistory(search){
   var avgOrder=shown.length?Math.round(mRev/shown.length):0;
   var custSpend={};shown.forEach(function(inv){var c=inv.customer||'—';custSpend[c]=(custSpend[c]||0)+inv.total;});
   var topCust=Object.keys(custSpend).sort(function(a,b){return custSpend[b]-custSpend[a]})[0]||'—';
+  var unpaidCount=shown.filter(function(i){return i.paid===false;}).length;
+  var unpaidRev=shown.filter(function(i){return i.paid===false;}).reduce(function(s,i){return s+i.total;},0);
   document.getElementById('h-stats').innerHTML=
     '<div class="stat-card"><div class="stat-lbl">Invoices</div><div class="stat-val n">'+shown.length+'</div><div class="stat-sub">in period</div></div>'+
     '<div class="stat-card"><div class="stat-lbl">Revenue</div><div class="stat-val gold">'+yen(mRev)+'</div><div class="stat-sub">total sales</div></div>'+
     '<div class="stat-card"><div class="stat-lbl">Est. Profit</div><div class="stat-val g">'+yen(mProfit)+'</div><div class="stat-sub">'+avgMarginPct+'% avg margin</div></div>'+
-    '<div class="stat-card"><div class="stat-lbl">Avg Order</div><div class="stat-val n">'+yen(avgOrder)+'</div><div class="stat-sub">top: '+esc(topCust)+'</div></div>';
+    (unpaidCount>0?'<div class="stat-card" style="border-color:#ef9a9a;background:#fff5f5"><div class="stat-lbl" style="color:var(--danger)">Unpaid</div><div class="stat-val r">'+unpaidCount+'</div><div class="stat-sub" style="color:var(--danger)">'+yen(unpaidRev)+' outstanding</div></div>':'<div class="stat-card"><div class="stat-lbl">Avg Order</div><div class="stat-val n">'+yen(avgOrder)+'</div><div class="stat-sub">top: '+esc(topCust)+'</div></div>');
   var filtered=shown.filter(function(inv){
     if(!search)return true;
     return (inv.id||'').toLowerCase().indexOf(search)>=0||(inv.customer||'').toLowerCase().indexOf(search)>=0||
@@ -1768,14 +1785,19 @@ function renderHistory(search){
     var profit=invProfit(inv),margin=inv.total>0?Math.round(profit/inv.total*100):0;
     var profitColor=profit>0?'var(--green)':'var(--danger)';
     var profitHtml='<div style="text-align:right"><div style="font-size:0.85rem;font-weight:700;color:'+profitColor+'">'+(profit>=0?'+':'')+yen(profit)+'</div><div style="font-size:0.68rem;color:var(--text-3)">'+margin+'% margin</div></div>';
-    return '<div class="inv-item">'+
-      '<div><div class="inv-num">'+esc(inv.id)+'</div><div style="font-size:0.63rem;color:var(--text-3);margin-top:1px">'+(inv.items||[]).length+' item'+((inv.items||[]).length!==1?'s':'')+'</div></div>'+
+    var isPaid=inv.paid!==false;
+    var paidBadge=isPaid?'':'<span style="font-size:0.6rem;font-weight:700;letter-spacing:0.05em;background:var(--danger);color:#fff;padding:1px 6px;border-radius:10px;margin-left:4px">UNPAID</span>';
+    var paidBtn=isPaid
+      ?'<button class="btn-sm mark-unpaid" onclick="togglePaid(\''+inv.id+'\')" title="Mark as unpaid">✓ Paid</button>'
+      :'<button class="btn-sm mark-paid" onclick="togglePaid(\''+inv.id+'\')" title="Mark as paid">✗ Unpaid</button>';
+    return '<div class="inv-item'+(isPaid?'':' unpaid')+'">'+
+      '<div><div class="inv-num">'+esc(inv.id)+paidBadge+'</div><div style="font-size:0.63rem;color:var(--text-3);margin-top:1px">'+(inv.items||[]).length+' item'+((inv.items||[]).length!==1?'s':'')+'</div></div>'+
       '<div><div class="inv-cust" onclick="filterByCustomer(\''+inv.id+'\');" title="Filter by this customer" style="cursor:pointer">'+esc(inv.customer||'')+'</div><div class="inv-sub">'+esc(inv.payment||'')+(d?' &middot; '+d:'')+'</div></div>'+
       profitHtml+
       '<div class="inv-amt">'+yen(inv.total)+'</div>'+
       '<div class="inv-acts">'+
+        paidBtn+
         '<button class="btn-sm" onclick="reprintInv(\''+inv.id+'\')">Print</button>'+
-        
         '<button class="btn-sm e" onclick="editInv(\''+inv.id+'\')">Edit</button>'+
         '<button class="btn-sm d" onclick="delInv(\''+inv.id+'\')">Del</button>'+
       '</div></div>';
@@ -1787,6 +1809,13 @@ function filterByCustomer(invId){
   if(!inv||!inv.customer)return;
   var sinp=document.getElementById('search-inp');
   if(sinp){sinp.value=inv.customer;renderHistory(inv.customer);}
+}
+function togglePaid(id){
+  var inv=invoices.find(function(i){return i.id===id;});if(!inv)return;
+  inv.paid=(inv.paid===false)?true:false;
+  persist();
+  renderHistory((document.getElementById('search-inp')||{}).value||'');
+  toast(inv.paid?'Invoice '+id+' marked as Paid ✓':'Invoice '+id+' marked as Unpaid — outstanding',inv.paid?'tok':'tinfo');
 }
 function toggleBackup(){var b=document.getElementById('backup-body');b.classList.toggle('open');document.getElementById('backup-icon').innerHTML=b.classList.contains('open')?'&#9660;':'&#9654;';}
 
