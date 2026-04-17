@@ -425,6 +425,22 @@ textarea{resize:vertical}
       <tbody id="profit-tbody"></tbody>
     </table>
   </div>
+
+  <!-- RECONCILIATION REPORT -->
+  <div style="margin-top:2rem">
+    <button class="backup-toggle" onclick="toggleRecon()" style="font-size:0.82rem;color:var(--text-2);font-weight:700">
+      <span id="recon-icon">&#9654;</span> &nbsp;&#128202; Cost Reconciliation Report
+    </button>
+    <div id="recon-body" style="display:none;margin-top:1rem">
+      <div style="background:#fff;border:1px solid var(--border);border-radius:var(--r-lg);overflow:hidden">
+        <div style="padding:0.85rem 1.1rem;background:var(--bg);border-bottom:1px solid var(--border);font-size:0.72rem;color:var(--text-3);line-height:1.6">
+          Scans all invoices and flags items where the <strong>current inventory cost</strong> differs from the
+          <strong>cost recorded at time of sale</strong> (if saved). Also flags items whose lot number no longer exists in inventory.
+        </div>
+        <div id="recon-content" style="padding:1rem 1.1rem"></div>
+      </div>
+    </div>
+  </div>
 </div>
 </main>
 
@@ -1258,8 +1274,20 @@ function syncToShop(manual,items){
     if(btn){btn.disabled=false;btn.textContent='↻ Sync to Shop';}
     if(d.error){toast('Shop sync failed: '+d.error,'terr');}
     else{
-      var msg='Shop synced — '+d.created+' created, '+d.updated+' updated.';
+      var msg='Synced: +'+d.created+' created, '+d.updated+' updated';
+      if(d.drafted>0) msg+=' ('+d.drafted+' set to Draft — missing image or low confidence)';
+      if(d.lowConfidence&&d.lowConfidence.length){
+        msg+='. ⚠ '+d.lowConfidence.length+' item'+(d.lowConfidence.length!==1?'s':'')+' need manual category review.';
+      }
       toast(msg,'tok');
+      if(d.lowConfidence&&d.lowConfidence.length){
+        // Show low-confidence items in a second toast after a brief delay
+        setTimeout(function(){
+          var names=d.lowConfidence.slice(0,3).map(function(x){return x.sku+': '+x.name.slice(0,24);}).join(', ');
+          if(d.lowConfidence.length>3)names+=' + '+(d.lowConfidence.length-3)+' more';
+          toast('Low-confidence items (check WP admin > Products > Drafts): '+names,'tinfo');
+        },2200);
+      }
     }
   })
   .catch(function(){
@@ -1443,7 +1471,7 @@ function showView(v){
   if(map[v]!==undefined) btns[map[v]].classList.add('active');
   if(v==='history')renderHistory('');
   if(v==='inventory')renderInventory();
-  if(v==='profit')renderProfit();
+  if(v==='profit'){renderProfit();renderReconciliation();}
 }
 
 /* ── ADD ITEM ROW ── */
@@ -2323,6 +2351,7 @@ function setPF(f){
   profitFilter=f;
   document.querySelectorAll('.pf-tab').forEach(function(t,i){t.classList.toggle('active',['all','month','week','today'][i]===f);});
   document.getElementById('pf-from').value='';document.getElementById('pf-to').value='';
+  var reconEl=document.getElementById('recon-content');if(reconEl)reconEl.dataset.rendered='';
   renderProfit();
 }
 function renderProfit(){
@@ -2375,6 +2404,87 @@ function renderProfit(){
     '</tr>';
   }).join('');
   document.getElementById('profit-tbody').innerHTML=rows||'<tr><td colspan="7" class="empty">No invoices in this period.</td></tr>';
+}
+
+/* ── RECONCILIATION REPORT ── */
+function toggleRecon(){
+  var body=document.getElementById('recon-body');
+  var icon=document.getElementById('recon-icon');
+  var open=body.style.display==='none';
+  body.style.display=open?'block':'none';
+  if(icon)icon.innerHTML=open?'&#9660;':'&#9654;';
+  if(open)renderReconciliation();
+}
+function renderReconciliation(){
+  var el=document.getElementById('recon-content');
+  if(!el||el.dataset.rendered==='1') return;
+  var flags=[];
+  invoices.forEach(function(inv){
+    (inv.items||[]).forEach(function(item){
+      if(!item.lotNo) return;
+      var ii=getItem(item.lotNo);
+      var flag={invId:inv.id,date:inv.date||'',customer:inv.customer||'',
+        lotNo:item.lotNo,name:item.name||'',qty:parseFloat(item.qty)||1,
+        salePrice:item.price||0,type:'',detail:''};
+      if(!ii){
+        // Lot no longer in inventory
+        flag.type='missing';
+        flag.detail='Lot '+item.lotNo+' not found in current inventory (sold out or removed)';
+        flags.push(flag);
+      } else {
+        // Check if cost is recorded on the item vs current inventory cost
+        var savedCost=item.cost!=null?item.cost:null;
+        var curCost=ii.cost||0;
+        if(savedCost!==null&&savedCost!==curCost){
+          var diff=(savedCost-curCost)*flag.qty;
+          flag.type='cost_drift';
+          flag.savedCost=savedCost;flag.curCost=curCost;flag.diff=diff;
+          flag.detail='Cost at sale: &#165;'+savedCost.toLocaleString()+' &rarr; Now: &#165;'+curCost.toLocaleString()+
+            ' (impact: '+(diff>=0?'+':'')+yen(Math.round(diff))+' on '+flag.qty+' unit'+(flag.qty!==1?'s':'')+')';
+          flags.push(flag);
+        }
+      }
+    });
+  });
+  if(!flags.length){
+    el.innerHTML='<div style="text-align:center;padding:2rem;color:var(--text-3);font-size:0.84rem">&#x2705; All invoice costs match current inventory. No discrepancies found.</div>';
+    el.dataset.rendered='1';return;
+  }
+  var costDrift=flags.filter(function(f){return f.type==='cost_drift';});
+  var missing=flags.filter(function(f){return f.type==='missing';});
+  var totalImpact=costDrift.reduce(function(s,f){return s+(f.diff||0);},0);
+  var html='<div style="display:flex;gap:1rem;margin-bottom:1rem;flex-wrap:wrap">'
+    +'<div style="background:#fff8e1;border:1px solid #ffe082;border-radius:var(--r-lg);padding:0.8rem 1.1rem;flex:1;min-width:160px">'
+      +'<div style="font-size:0.6rem;letter-spacing:0.12em;text-transform:uppercase;color:#f57f17;font-weight:700;margin-bottom:4px">Cost Drift</div>'
+      +'<div style="font-size:1.2rem;font-weight:700;color:var(--amber)">'+costDrift.length+' items</div>'
+      +'<div style="font-size:0.68rem;color:var(--text-3)">P&L impact: <strong style="color:'+(totalImpact>=0?'var(--green)':'var(--danger)')+'">'+yen(Math.round(totalImpact))+'</strong></div>'
+    +'</div>'
+    +'<div style="background:#ffebee;border:1px solid #ef9a9a;border-radius:var(--r-lg);padding:0.8rem 1.1rem;flex:1;min-width:160px">'
+      +'<div style="font-size:0.6rem;letter-spacing:0.12em;text-transform:uppercase;color:var(--danger);font-weight:700;margin-bottom:4px">Missing Lots</div>'
+      +'<div style="font-size:1.2rem;font-weight:700;color:var(--danger)">'+missing.length+' items</div>'
+      +'<div style="font-size:0.68rem;color:var(--text-3)">Lot no longer in inventory</div>'
+    +'</div>'
+  +'</div>';
+  html+='<table class="inv-table"><thead><tr>'
+    +'<th>Invoice</th><th>Date</th><th>Customer</th><th>Lot</th><th>Item</th><th>Issue</th>'
+    +'</tr></thead><tbody>';
+  flags.forEach(function(f){
+    var rowColor=f.type==='missing'?'background:#fff5f5':'background:#fffde7';
+    html+='<tr style="'+rowColor+'">'
+      +'<td style="font-weight:600;color:var(--gold)">'+esc(f.invId)+'</td>'
+      +'<td style="font-size:0.76rem;color:var(--text-2)">'+esc(f.date)+'</td>'
+      +'<td>'+esc(f.customer)+'</td>'
+      +'<td><span class="lot-badge custom">'+esc(f.lotNo)+'</span></td>'
+      +'<td style="font-size:0.78rem">'+esc(f.name)+'</td>'
+      +'<td style="font-size:0.75rem;color:'+(f.type==='missing'?'var(--danger)':'var(--amber)')+'">'+f.detail+'</td>'
+    +'</tr>';
+  });
+  html+='</tbody></table>';
+  html+='<div style="margin-top:0.85rem;padding:0.6rem 0.85rem;background:var(--bg);border-radius:var(--r);font-size:0.7rem;color:var(--text-3);line-height:1.6">'
+    +'<strong>Tip:</strong> To lock costs at time of sale, set the item cost in the invoice using the &#128176; Costs button on the invoice preview. '
+    +'Costs locked on invoices will override live inventory costs for profit calculation.</div>';
+  el.innerHTML=html;
+  el.dataset.rendered='1';
 }
 
 /* ── EXPORT / IMPORT ── */

@@ -29,10 +29,9 @@ const ALIASES = [
   ['smokey quartz','Smoky Quartz'],['rutile quartz','Rutile Quartz'],
   ['lemon quartz','Lemon Quartz'],['beer quartz','Beer Quartz'],
   ['champagne quartz','Champagne Quartz'],['strawberry quartz','Strawberry Quartz'],
-  ['lapis lazuli','Lapis Lazuli'],['beer quartz','Beer Quartz'],
-  ['champagne','Champagne Quartz'],['champange','Champagne Quartz'],
-  ['chempegene','Champagne Quartz'],['cognac','Beer Quartz'],
-  ['milky aqua','Aquamarine'],['bio lemon','Lemon Quartz'],
+  ['lapis lazuli','Lapis Lazuli'],['champagne','Champagne Quartz'],
+  ['champange','Champagne Quartz'],['chempegene','Champagne Quartz'],
+  ['cognac','Beer Quartz'],['milky aqua','Aquamarine'],['bio lemon','Lemon Quartz'],
   ['green strawberry','Strawberry Quartz'],['red strawberry','Strawberry Quartz'],
   ['copper rutilite','Rutile Quartz'],['green rutilite','Rutile Quartz'],
   ['black rutilite','Rutile Quartz'],['mix rutilated','Rutile Quartz'],
@@ -52,8 +51,8 @@ const ALIASES = [
   ['black spinal','Spinel'],['spinal','Spinel'],
   ['rhodocrosite','Rhodochrosite'],['rodocrosite','Rhodochrosite'],
   ['chrisoprase','Chrysoprase'],['chrysocalla','Chrysocolla'],
-  ['chrysocola','Chrysocolla'],
-  ['chalsedony','Chalcedony'],['chalsydeny','Chalcedony'],['chacedony','Chalcedony'],
+  ['chrysocola','Chrysocolla'],['chalsedony','Chalcedony'],
+  ['chalsydeny','Chalcedony'],['chacedony','Chalcedony'],
   ['choco moon','Moonstone'],['grey moon','Moonstone'],['w moon','Moonstone'],
   ['peach monstone','Moonstone'],['peach moonstone','Moonstone'],
   ['levender','Lavender'],['flourite','Fluorite'],['prinite','Prehnite'],
@@ -77,27 +76,70 @@ const ALIASES = [
   ['turquoise','Turquoise'],['rosequartz','Rose Quartz'],
   ['strawberry','Strawberry Quartz'],['prasiolite','Green Amethyst'],
 ]
-// Sort by alias length descending (longest match wins)
 ALIASES.sort((a, b) => b[0].length - a[0].length)
 
+/**
+ * Find stone type from product name.
+ * Returns { stone, confidence } where confidence is 0-100.
+ */
 function findStone(name) {
   const lower = name.toLowerCase()
   for (const [alias, stone] of ALIASES) {
-    if (lower.includes(alias) && STONE_CATS[stone]) return stone
+    if (lower.includes(alias) && STONE_CATS[stone]) {
+      // Longer alias = more specific = higher confidence
+      const conf = Math.min(100, 50 + alias.length * 3)
+      return { stone, confidence: conf }
+    }
   }
-  return null
+  return { stone: null, confidence: 0 }
 }
 
 const BEADS_TERMS = ['rondel','rondell','roundelle','roundel','heishi','tumble','sazare','nugget','bead','a-line','a line','strand']
 const BRACELET_TERMS = ['bracelet']
 const CAT_BEADS = 32, CAT_BRACELET = 33, CAT_GEMSTONE = 34
 
-function mainCatFor(item) {
+/**
+ * Classify an item into its main WooCommerce category.
+ * Returns { catId, label, confidence, signals[] }
+ */
+function classifyItem(item) {
   const lower = item.name.toLowerCase()
-  const prefix = (item.lotNo || '').replace(/[0-9]+$/, '')
-  if (BRACELET_TERMS.some(t => lower.includes(t))) return CAT_BRACELET
-  if (prefix === 'C' || BEADS_TERMS.some(t => lower.includes(t))) return CAT_BEADS
-  return CAT_GEMSTONE
+  const prefix = (item.lotNo || '').replace(/[0-9]+$/, '').toUpperCase()
+  const signals = []
+  let confidence = 0
+
+  if (BRACELET_TERMS.some(t => lower.includes(t))) {
+    signals.push('name contains bracelet keyword')
+    confidence = 95
+    return { catId: CAT_BRACELET, label: 'Bracelet', confidence, signals }
+  }
+  if (prefix === 'S') {
+    signals.push('lot prefix S → Bracelet')
+    confidence = 90
+    return { catId: CAT_BRACELET, label: 'Bracelet', confidence, signals }
+  }
+  if (prefix === 'C' || prefix === 'H' || prefix === 'V') {
+    signals.push(`lot prefix ${prefix} → Beads`)
+    confidence = 90
+    // Extra boost if bead keyword also matches
+    if (BEADS_TERMS.some(t => lower.includes(t))) { signals.push('name also contains bead keyword'); confidence = 98 }
+    return { catId: CAT_BEADS, label: 'Beads', confidence, signals }
+  }
+  if (BEADS_TERMS.some(t => lower.includes(t))) {
+    signals.push('name contains bead keyword')
+    confidence = 80
+    return { catId: CAT_BEADS, label: 'Beads', confidence, signals }
+  }
+  if (prefix === 'N') {
+    signals.push('lot prefix N → Gemstone')
+    confidence = 85
+    return { catId: CAT_GEMSTONE, label: 'Gemstone', confidence, signals }
+  }
+
+  // Fallback: low confidence
+  signals.push('no matching prefix or keyword — defaulting to Gemstone')
+  confidence = 40
+  return { catId: CAT_GEMSTONE, label: 'Gemstone', confidence, signals }
 }
 
 function wcHeaders() {
@@ -107,28 +149,26 @@ function wcHeaders() {
 
 async function wcGet(path) {
   const r = await fetch(`${WC_BASE}${path}`, { headers: wcHeaders() })
+  if (!r.ok) throw new Error(`WC GET ${path} → ${r.status}`)
   return r.json()
 }
 
 async function wcPost(path, body) {
   const r = await fetch(`${WC_BASE}${path}`, {
-    method: 'POST',
-    headers: wcHeaders(),
-    body: JSON.stringify(body)
+    method: 'POST', headers: wcHeaders(), body: JSON.stringify(body)
   })
+  if (!r.ok) throw new Error(`WC POST ${path} → ${r.status}`)
   return r.json()
 }
 
-// Fetch all existing products by SKU (paginated)
+/** Fetch all existing WC products keyed by SKU (paginated). */
 async function fetchSkuMap() {
   const map = {}
   let page = 1
   while (true) {
-    const products = await wcGet(`/products?per_page=100&page=${page}&status=publish`)
+    const products = await wcGet(`/products?per_page=100&page=${page}&status=any`)
     if (!Array.isArray(products) || products.length === 0) break
-    for (const p of products) {
-      if (p.sku) map[p.sku] = p
-    }
+    for (const p of products) { if (p.sku) map[p.sku] = p }
     if (products.length < 100) break
     page++
   }
@@ -141,52 +181,121 @@ export default async function handler(req, res) {
 
   const { items } = req.body
   if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: 'No items' })
-
   if (!WC_KEY || !WC_SECRET) return res.status(500).json({ error: 'WC credentials not set' })
 
   try {
     const skuMap = await fetchSkuMap()
     const toCreate = [], toUpdate = []
+    const lowConfidence = []  // items flagged for manual review
 
     for (const item of items) {
       const sku = item.lotNo
       if (!sku || !item.name) continue
 
-      const stone = findStone(item.name)
-      const cats = [{ id: mainCatFor(item) }]
-      if (stone) cats.push({ id: STONE_CATS[stone] })
+      // Classifier
+      const classification = classifyItem(item)
+      const stoneResult = findStone(item.name)
+
+      const cats = [{ id: classification.catId }]
+      if (stoneResult.stone) cats.push({ id: STONE_CATS[stoneResult.stone] })
+
+      // Overall confidence = average of category + stone confidence (if stone found)
+      const overallConf = stoneResult.stone
+        ? Math.round((classification.confidence + stoneResult.confidence) / 2)
+        : classification.confidence
+
+      if (overallConf < 60) {
+        lowConfidence.push({
+          sku,
+          name: item.name,
+          confidence: overallConf,
+          classification: classification.label,
+          stone: stoneResult.stone,
+          signals: classification.signals
+        })
+      }
+
+      // Determine publish status:
+      // - Draft if item has no image URL (images must be added in WP admin)
+      // - Draft if classifier confidence is very low (<40) — flag for manual review
+      // - Publish otherwise (qty 0 handled via stock_quantity, WC hides it)
+      const hasImage = item.imageUrl && item.imageUrl.trim().length > 0
+      const isLowConfidence = overallConf < 40
+      const qty = parseInt(item.qty) || 0
+
+      let status = 'publish'
+      if (!hasImage) status = 'draft'
+      else if (isLowConfidence) status = 'draft'
 
       const productData = {
         name: item.name,
         sku,
         regular_price: String(item.price || 0),
         manage_stock: true,
-        stock_quantity: item.qty || 0,
-        status: 'publish',
-        categories: cats
+        stock_quantity: qty,
+        stock_status: qty > 0 ? 'instock' : 'outofstock',
+        // Hide 0-stock items from catalog (WC respects this with hide-out-of-stock setting)
+        catalog_visibility: qty === 0 ? 'hidden' : 'visible',
+        status,
+        categories: cats,
+        // Store classifier metadata in meta_data for admin reference
+        meta_data: [
+          { key: '_jsg_synced', value: '1' },
+          { key: '_jsg_classifier_confidence', value: String(overallConf) },
+          { key: '_jsg_classifier_label', value: classification.label },
+          { key: '_jsg_classifier_signals', value: classification.signals.join('; ') },
+          { key: '_jsg_synced_at', value: new Date().toISOString() },
+        ]
+      }
+
+      // Attach image if URL provided
+      if (hasImage) {
+        productData.images = [{ src: item.imageUrl, alt: item.name }]
       }
 
       if (skuMap[sku]) {
-        toUpdate.push({ id: skuMap[sku].id, ...productData })
+        // Existing product: update price/stock/status but preserve manually set categories
+        // if the product has been manually reviewed (_jsg_manual_cats meta)
+        const existing = skuMap[sku]
+        const manualMeta = (existing.meta_data || []).find(m => m.key === '_jsg_manual_cats')
+        if (manualMeta && manualMeta.value === '1') {
+          // Preserve manually set categories
+          delete productData.categories
+        }
+        toUpdate.push({ id: existing.id, ...productData })
       } else {
         toCreate.push(productData)
       }
     }
 
-    const results = { created: 0, updated: 0, errors: [] }
+    const results = { created: 0, updated: 0, errors: [], lowConfidence, drafted: 0 }
 
     // Batch create (100 at a time)
     for (let i = 0; i < toCreate.length; i += 100) {
       const r = await wcPost('/products/batch', { create: toCreate.slice(i, i + 100) })
-      results.created += (r.create || []).length
-      if (r.create) r.create.forEach(p => { if (p.error) results.errors.push(p.error.message) })
+      if (r.create) {
+        r.create.forEach(p => {
+          if (p.error) results.errors.push(p.error.message)
+          else {
+            results.created++
+            if (p.status === 'draft') results.drafted++
+          }
+        })
+      }
     }
 
     // Batch update (100 at a time)
     for (let i = 0; i < toUpdate.length; i += 100) {
       const r = await wcPost('/products/batch', { update: toUpdate.slice(i, i + 100) })
-      results.updated += (r.update || []).length
-      if (r.update) r.update.forEach(p => { if (p.error) results.errors.push(p.error.message) })
+      if (r.update) {
+        r.update.forEach(p => {
+          if (p.error) results.errors.push(p.error.message)
+          else {
+            results.updated++
+            if (p.status === 'draft') results.drafted++
+          }
+        })
+      }
     }
 
     return res.status(200).json(results)
